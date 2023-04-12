@@ -1154,7 +1154,7 @@ static void align(
     random_state state;
     struct text_alignment *tas[n_samplers];
 
-    random_system_state(&state);
+    // random_system_state(&state);
 
     t0 = seconds();
     for (int i=0; i<n_samplers; i++) {
