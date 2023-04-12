@@ -5,7 +5,6 @@
 #include <inttypes.h>
 #include <assert.h>
 #include <time.h>
-#include <omp.h>
 
 #ifndef EXACT_MATH
 #include "simd_math_prims.h"
@@ -1178,10 +1177,8 @@ static void align(
                 seconds() - t0);
 
     t0 = seconds();
-#pragma omp parallel for
     for (int i=0; i<n_samplers; i++) {
         random_state local_state;
-#pragma omp critical
         {
             local_state = random_split_state(&state);
         }
@@ -1197,10 +1194,8 @@ static void align(
                         m, n_iters[m-1]);
             t0 = seconds();
 
-#pragma omp parallel for
             for (int i=0; i<n_samplers; i++) {
                 random_state local_state;
-#pragma omp critical
                 {
                     local_state = random_split_state(&state);
                 }
@@ -1297,8 +1292,6 @@ int main(int argc, char *argv[]) {
 
     n_iters[0] = 1; n_iters[1] = 1; n_iters[2] = 1;
 
-    omp_set_nested(1);
-
     while ((opt = getopt(argc, argv, "s:t:p:f:r:S:F:R:1:2:3:n:qm:M:N:h"))
             != -1)
     {
@@ -1360,7 +1353,6 @@ int main(int argc, char *argv[]) {
                 source->vocabulary_size, target->vocabulary_size);
     }
 
-#pragma omp parallel for
     for (int reverse=0; reverse<=1; reverse++) {
         char *links_filename =
             (reverse? links_filename_rev: links_filename_fwd);

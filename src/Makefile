@@ -1,7 +1,7 @@
-CFLAGS=-Ofast -march=native -Wall --std=gnu99 -Wno-unused-function -g -fopenmp
+CFLAGS=-Ofast -march=native -Wall --std=gnu99 -Wno-unused-function -g
 # This is more suitable for debugging:
-#CFLAGS=-Og -Wall --std=gnu99 -Wno-unused-function -g -fopenmp
-LDFLAGS=-lm -lgomp -fopenmp
+#CFLAGS=-Og -Wall --std=gnu99 -Wno-unused-function -g
+LDFLAGS=-lm
 # -lrt
 INSTALLDIR=/usr/local/bin
 PYINSTALLDIR=../python/eflomal/bin
