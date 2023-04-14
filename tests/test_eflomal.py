@@ -18,11 +18,13 @@ class TestAlign(unittest.TestCase):
             'En svart katt .\n',
             'En gul fågel .\n',
             'En vit elefant .\n',
+            'kuro neko .\n',
         ]
         self.trg_data = [
             'A black cat .\n',
             'A yellow bird .\n',
             'A white elephant .\n',
+            'a black cat .\n',
         ]
         self.priors_data = [
             'LEX\tsvart\tblack\t100\n',
@@ -43,16 +45,18 @@ class TestAlign(unittest.TestCase):
                           quiet=False)
             fwd_links.seek(0)
             self.assertEqual(fwd_links.readlines(), [
-                '3-1 1-2 3-3\n',
-                '2-1 1-2 3-3\n',
-                '2-1 1-2 3-3\n'
+                '0-0 2-1 1-2 3-3\n',
+                '0-0 1-1 1-2 3-3\n',
+                '0-0 1-1 1-2 3-3\n',
+                '0-0 1-1 2-3\n'
             ])
             
             rev_links.seek(0)
             self.assertEqual(rev_links.readlines(), [
-                '1-3 2-1 3-3\n',
-                '1-2 2-1 3-3\n',
-                '1-2 2-1 3-3\n'
+                '0-3 1-2 2-1 3-0\n',
+                '0-3 1-2 2-1 3-0\n',
+                '0-3 1-2 2-1 3-0\n',
+                '0-1 2-0\n'
             ])
 
     def test_aligner_with_priors(self):
@@ -67,14 +71,16 @@ class TestAlign(unittest.TestCase):
             self.assertEqual(fwd_links.readlines(), [
                 '0-0 1-1 2-2 3-3\n',
                 '0-0 1-1 2-2 3-3\n',
-                '0-0 1-1 2-2 3-3\n'
+                '0-0 1-1 2-2 3-3\n',
+                '0-0 1-1 2-3\n'
             ])
             
             rev_links.seek(0)
             self.assertEqual(rev_links.readlines(), [
                 '0-0 1-1 2-2 3-3\n',
                 '0-0 1-1 2-2 3-3\n',
-                '0-0 1-1 2-2 3-3\n'
+                '0-0 1-1 2-2 3-3\n',
+                '0-0 2-3\n'
             ])
 
     def test_makepriors(self):

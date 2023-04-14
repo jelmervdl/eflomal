@@ -1151,7 +1151,7 @@ static void align(
         const char *priors_filename)
 {
     double t0;
-    random_state state;
+    random_state state = 1;
     struct text_alignment *tas[n_samplers];
 
     // random_system_state(&state);
