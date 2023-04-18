@@ -92,8 +92,21 @@ struct text_alignment {
     int has_jump_prior;
     count jump_prior[JUMP_ARRAY_LEN];
     count *fert_prior;
+    
+    /**
+     * u32[size_t<vocab-size][size_t] where second dimension is a hash-map that
+     * counts how often a source -> target pair appeared in the sentences.
+     */
     struct map_token_u32 *source_count;
     count *inv_source_count_sum;
+
+    /**
+     * Looks like it is a count for how often we jump forward or backward
+     * looking from target to source sentence. Centred around JUMP_ARRAY_LEN/2.
+     * Sum of all elements at index JUMP_SUM (wich is JUMP_ARRAY_LEN-1) for
+     * normalizing it efficiently presumably.
+     * `count` is float or double.
+     */
     count jump_counts[JUMP_ARRAY_LEN];
     count *fert_counts;
     // this number of sentences contain clean parallel data and should
@@ -646,6 +659,9 @@ resample:;
     if (argmax) free(acc_ps);
 }
 
+/**
+ * 
+ */
 void text_alignment_make_counts(struct text_alignment *ta) {
     const int model = ta->model;
     struct sentence **source_sentences = ta->source->sentences;
@@ -698,6 +714,10 @@ void text_alignment_make_counts(struct text_alignment *ta) {
             ta->inv_source_count_sum[e] += (count)1.0;
             map_token_u32_add(ta->source_count + e, f, 1);
             if (model >= 2 && e != 0) {
+                // aa_jm1 is index of source token for previous target token.
+                // jump is clamp((i - aa_jm1) + JUMP_ARRAY_LEN/2, 0, JUMP_ARRAY_LEN-1)
+                // source_length is ignored. jump can be JUMP_SUM which sounds
+                // like a bug to me.
                 const size_t jump = get_jump_index(aa_jm1, i, source_length);
                 aa_jm1 = i;
                 ta->jump_counts[jump] += (count)1.0;
@@ -714,6 +734,9 @@ void text_alignment_make_counts(struct text_alignment *ta) {
         ta->inv_source_count_sum[i] = (count)1.0 / ta->inv_source_count_sum[i];
 }
 
+/**
+ * Assigns random alignment links for each sentence pair.
+ */
 void text_alignment_randomize(struct text_alignment *ta, random_state *state) {
     struct sentence **source_sentences = ta->source->sentences;
     struct sentence **target_sentences = ta->target->sentences;
