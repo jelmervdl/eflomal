@@ -1,5 +1,5 @@
 """eflomal package"""
-
+import os
 from collections import Counter
 import logging
 from operator import itemgetter
@@ -62,9 +62,10 @@ class Aligner:
               scores_filename_fwd=None, scores_filename_rev=None,
               priors_input=None, quiet=True, use_gdb=False):
         """Run alignment for the input"""
-        with NamedTemporaryFile('wb') as srcf, \
-             NamedTemporaryFile('wb') as trgf, \
-             NamedTemporaryFile('w', encoding='utf-8') as priorsf:
+        pid = os.getpid()
+        with open(f'{pid}.src', 'wb') as srcf, \
+             open(f'{pid}.trg', 'wb') as trgf, \
+             open(f'{pid}.priors', 'w', encoding='utf-8') as priorsf:
             # Write input files for the eflomal binary
             self.prepare_files(
                 src_input, srcf, trg_input, trgf, priors_input, priorsf)
