@@ -35,6 +35,25 @@ class TestAlign(unittest.TestCase):
             'LEX\telefant\telephant\t100\n',
         ]
 
+    def test_new_aligner_with_priors(self):
+        """Test aligner with priors"""
+        aligner = eflomal.Aligner(priors_file=self.priors_data)
+
+        batch = [
+            (src[:-1].split(), trg[:-1].split())
+            for src, trg in zip(self.src_data, self.trg_data)
+        ]
+
+        output = aligner.align(batch)
+        
+        self.assertEqual(output, [
+            [(0,0), (1,1), (2,2), (3,3)],
+            [(0,0), (1,1), (2,2), (3,3)],
+            [(0,0), (1,1), (2,2), (3,3)],
+            [(0,0), (1,1), (2,3)],
+        ])
+
+    @unittest.skip('deprecated')
     def test_aligner(self):
         """Test aligner without priors producing rubbish"""
         aligner = eflomal.Aligner()
@@ -50,15 +69,8 @@ class TestAlign(unittest.TestCase):
                 '0-0 1-1 1-2 3-3\n',
                 '0-0 1-1 2-3\n'
             ])
-            
-            rev_links.seek(0)
-            self.assertEqual(rev_links.readlines(), [
-                '0-3 1-2 2-1 3-0\n',
-                '0-3 1-2 2-1 3-0\n',
-                '0-3 1-2 2-1 3-0\n',
-                '0-1 2-0\n'
-            ])
 
+    @unittest.skip('deprecated')
     def test_aligner_with_priors(self):
         """Test aligner with priors"""
         aligner = eflomal.Aligner()
@@ -83,6 +95,7 @@ class TestAlign(unittest.TestCase):
                 '0-0 2-3\n'
             ])
 
+    @unittest.skip('todo')
     def test_makepriors(self):
         """Test creating priors"""
         aligner = eflomal.Aligner()

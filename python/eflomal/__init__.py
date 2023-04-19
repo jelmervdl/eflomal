@@ -1,24 +1,42 @@
 """eflomal package"""
 import os
-from collections import Counter
+import math
+import subprocess
 import logging
+from collections import Counter
 from operator import itemgetter
 from tempfile import NamedTemporaryFile
+from typing import NamedTuple, Optional, List, Tuple
 
-from .cython import align, read_text, write_text
+from .cython import read_text, write_text
 
 
 logger = logging.getLogger(__name__)
 
+Priors = NamedTuple('Priors', [
+    ('priors', list),  # list of (srcword, trgword, alpha)
+    ('ferf', list),    # list of (wordform, alpha)
+    ('ferr', list),    # list of (wordform, alpha)
+    ('hmmf', dict),    # dict of jump: alpha
+    ('hmmr', dict),    # dict of jump: alpha
+])
+
+SentencePair = NamedTuple('SentencePair', [
+    ('src', List[str]),
+    ('trg', List[str]),
+])
 
 class Aligner:
     """Aligner class"""
 
-    def __init__(self, model=3, score_model=0,
+    priors: Optional[Priors]
+
+    def __init__(self, *, model=3, score_model=0,
                  n_iterations=None, n_samplers=3,
                  rel_iterations=1.0, null_prior=0.2,
                  source_prefix_len=0, source_suffix_len=0,
-                 target_prefix_len=0, target_suffix_len=0):
+                 target_prefix_len=0, target_suffix_len=0,
+                 priors_file:Optional[str]=None):
         self.model = model
         self.score_model = score_model
         self.n_iterations = n_iterations
@@ -30,9 +48,10 @@ class Aligner:
         self.target_prefix_len = target_prefix_len
         self.target_suffix_len = target_suffix_len
 
-    def prepare_files(self, src_input_file, src_output_file,
-                      trg_input_file, trg_output_file,
-                      priors_input_file, priors_output_file):
+        if priors_file:
+            self.priors = read_priors(priors_file)
+
+    def prepare_files(self, input:List[SentencePair], src_output_file, trg_output_file, priors_output_file):
         """Convert text files to formats used by eflomal
 
         Inputs should be file objects or any iterables over lines. Outputs
@@ -40,52 +59,69 @@ class Aligner:
 
         """
         src_index, n_src_sents, src_voc_size = to_eflomal_text_file(
-            src_input_file, src_output_file,
+            [pair[0] for pair in input], src_output_file,
             self.source_prefix_len, self.source_suffix_len)
         trg_index, n_trg_sents, trg_voc_size = to_eflomal_text_file(
-            trg_input_file, trg_output_file,
+            [pair[1] for pair in input], trg_output_file,
             self.target_prefix_len, self.target_suffix_len)
-        if n_src_sents != n_trg_sents:
-            logger.error(
-                'number of sentences differ in input files (%d vs %d)',
-                n_src_sents, n_trg_sents)
-            raise ValueError('Mismatched file sizes')
         logger.info('Prepared %d sentences for alignment', n_src_sents)
-        if priors_input_file:
-            logger.info('Reading lexical priors...')
-            priors = read_priors(priors_input_file)
+        if self.priors:
             to_eflomal_priors_file(
-                priors, src_index, trg_index, priors_output_file)
+                self.priors, src_index, trg_index, priors_output_file)
 
-    def align(self, src_input, trg_input,
-              links_filename_fwd=None, links_filename_rev=None,
-              scores_filename_fwd=None, scores_filename_rev=None,
-              priors_input=None, quiet=True, use_gdb=False):
+    def align(self, batch:List[SentencePair], *, quiet=True, use_gdb=False) -> List[List[Tuple[int,int]]]:
         """Run alignment for the input"""
         pid = os.getpid()
-        with open(f'{pid}.src', 'wb') as srcf, \
-             open(f'{pid}.trg', 'wb') as trgf, \
-             open(f'{pid}.priors', 'w', encoding='utf-8') as priorsf:
+
+        executable = os.path.join(os.path.dirname(__file__), 'bin', 'eflomal')
+
+        n_sentences = len(batch)
+
+        n_iterations = self.n_iterations
+
+        if n_iterations is None:
+            iters = max(2, int(round(self.rel_iterations*5000 / math.sqrt(n_sentences))))
+            iters4 = max(1, iters//4)
+            if self.model == 1:
+                n_iterations = (iters, 0, 0)
+            elif self.model == 2:
+                n_iterations = (max(2, iters4), iters, 0)
+            else:
+                n_iterations = (max(2, iters4), iters4, iters)
+
+        with NamedTemporaryFile(delete=False, dir='.', prefix=f'{pid}_', suffix='.src', mode='wb') as srcf, \
+             NamedTemporaryFile(delete=False, dir='.', prefix=f'{pid}_', suffix='.trg', mode='wb') as trgf, \
+             NamedTemporaryFile(delete=False, dir='.', prefix=f'{pid}_', suffix='.priors', mode='w', encoding='utf-8') as priorsf:
+            
             # Write input files for the eflomal binary
-            self.prepare_files(
-                src_input, srcf, trg_input, trgf, priors_input, priorsf)
-            # Run wrapper for the eflomal binary
-            align(srcf.name, trgf.name,
-                  links_filename_fwd=links_filename_fwd,
-                  links_filename_rev=links_filename_rev,
-                  statistics_filename=None,
-                  scores_filename_fwd=scores_filename_fwd,
-                  scores_filename_rev=scores_filename_rev,
-                  priors_filename=(None if priors_input is None
-                                   else priorsf.name),
-                  model=self.model,
-                  score_model=self.score_model,
-                  n_iterations=self.n_iterations,
-                  n_samplers=self.n_samplers,
-                  quiet=quiet,
-                  rel_iterations=self.rel_iterations,
-                  null_prior=self.null_prior,
-                  use_gdb=use_gdb)
+            self.prepare_files(batch, srcf, trgf, priorsf)
+            
+            # Run the eflomal binary
+            args = [
+                executable,
+                '-m', str(self.model),
+                '-s', srcf.name,
+                '-t', trgf.name,
+                '-n', str(self.n_samplers),
+                '-N', str(self.null_prior),
+                '-1', str(n_iterations[0]),
+                '-f', '-', # forward links to stdout
+            ]
+            
+            if quiet: args.append('-q')
+            if self.model >= 2: args.extend(['-2', str(n_iterations[1])])
+            if self.model >= 3: args.extend(['-3', str(n_iterations[2])])
+            if self.priors: args.extend(['-p', priorsf.name])
+            if use_gdb: args = ['gdb', '-ex=run', '--args'] + args
+        
+            output = subprocess.check_output(args)
+
+        return [
+            [parse_link(link) for link in line.split(b' ')]
+            for line in output.split(b'\n')
+            if line != b''
+        ]
+
 
 
 class TextIndex:
@@ -111,12 +147,27 @@ class TextIndex:
         return e
 
 
-def to_eflomal_text_file(sentencefile, outfile, prefix_len=0, suffix_len=0):
+def parse_link(tupstr:bytes) -> Tuple[int,int]:
+    try:
+        i, j = tupstr.split(b'-')
+        return int(i), int(j)
+    except:
+        raise ValueError(f'Cannot parse "{tupstr.decode()}" as link pair')
+
+
+class Dictionary(dict):
+    def __missing__(self, key):
+        index = len(self)
+        self[key] = index
+        return index
+
+
+def to_eflomal_text_file(sentences, outfile, prefix_len=0, suffix_len=0):
     """Write sentences to a file read by eflomal binary
 
     Arguments:
 
-    sentencefile - input text file object
+    sentencefile - input text list
     outfile - output file object
     prefix_len - prefix length to remove
     suffix_len - suffix length to remove
@@ -124,10 +175,29 @@ def to_eflomal_text_file(sentencefile, outfile, prefix_len=0, suffix_len=0):
     Returns TextIndex object.
 
     """
-    sents, index = read_text(sentencefile, True, prefix_len, suffix_len)
+    def normalize(token):
+        token = token.lower()
+        if prefix_len > 0: token = token[:prefix_len]
+        if suffix_len > 0: token = token[-suffix_len:]
+        return token
+
+    index = Dictionary()
+    sents = [
+        [index[normalize(token)] for token in tokens]
+        for tokens in sentences
+    ]
+
     n_sents = len(sents)
     voc_size = len(index)
-    write_text(outfile, tuple(sents), voc_size)
+
+    outfile.write(f'{n_sents:d} {voc_size:d}\n'.encode())
+    for sent in sents:
+        if len(sent) < 0x400:
+            outfile.write((f'{len(sent):d}' + ''.join(f' {token:d}' for token in sent) + '\n').encode())
+        else:
+            outfile.write(b'0\n')
+    outfile.flush()
+
     return TextIndex(index, prefix_len, suffix_len), n_sents, voc_size
 
 
@@ -246,7 +316,7 @@ def read_priors(priors_file):
         else:
             logger.error('priors line %d is invalid', i + 1)
             raise ValueError('Invalid input on line %d' % i + 1)
-    return priors_list, hmmf_priors, hmmr_priors, ferf_priors, ferr_priors
+    return Priors(priors_list, hmmf_priors, hmmr_priors, ferf_priors, ferr_priors)
 
 
 def to_eflomal_priors_file(priors, src_index, trg_index, outfile):
