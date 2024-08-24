@@ -6,12 +6,12 @@
 #include <assert.h>
 #include <time.h>
 
-#ifndef EXACT_MATH
-#include "simd_math_prims.h"
-#define expf        expapprox
-#define logf        logapprox
-#define powf(x,y)   expf(logf(x)*y)
-#endif
+// #ifndef EXACT_MATH
+// #include "simd_math_prims.h"
+// #define expf        expapprox
+// #define logf        logapprox
+// #define powf(x,y)   expf(logf(x)*y)
+// #endif
 
 #define PRIlink     PRIu16
 #define SCNlink     SCNu16
@@ -1318,6 +1318,7 @@ int main(int argc, char *argv[]) {
     while ((opt = getopt(argc, argv, "s:t:p:f:r:S:F:R:1:2:3:n:qm:M:N:h"))
             != -1)
     {
+        fprintf(stderr, "> -%c %s\n", opt, optarg);
         switch(opt) {
             case 's': source_filename = optarg; break;
             case 't': target_filename = optarg; break;
@@ -1354,6 +1355,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (model == -1) {
+        fprintf(stderr, "No -m model provided\n");
         help(argv[0]);
         return 1;
     }

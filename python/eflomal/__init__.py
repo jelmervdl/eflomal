@@ -1,4 +1,5 @@
 """eflomal package"""
+import sys
 import os
 import math
 import subprocess
@@ -6,7 +7,7 @@ import logging
 from collections import Counter
 from operator import itemgetter
 from tempfile import NamedTemporaryFile
-from typing import NamedTuple, Optional, List, Tuple
+from typing import NamedTuple, Optional, List, Tuple, Iterable
 
 from .cython import read_text, write_text
 
@@ -15,16 +16,13 @@ logger = logging.getLogger(__name__)
 
 Priors = NamedTuple('Priors', [
     ('priors', list),  # list of (srcword, trgword, alpha)
-    ('ferf', list),    # list of (wordform, alpha)
-    ('ferr', list),    # list of (wordform, alpha)
     ('hmmf', dict),    # dict of jump: alpha
     ('hmmr', dict),    # dict of jump: alpha
+    ('ferf', list),    # list of (wordform, alpha)
+    ('ferr', list),    # list of (wordform, alpha)
 ])
 
-SentencePair = NamedTuple('SentencePair', [
-    ('src', List[str]),
-    ('trg', List[str]),
-])
+SentencePair = Tuple[List[str], List[str]]
 
 class Aligner:
     """Aligner class"""
@@ -36,7 +34,7 @@ class Aligner:
                  rel_iterations=1.0, null_prior=0.2,
                  source_prefix_len=0, source_suffix_len=0,
                  target_prefix_len=0, target_suffix_len=0,
-                 priors_file:Optional[str]=None):
+                 priors_file:Optional[Iterable[str]]=None):
         self.model = model
         self.score_model = score_model
         self.n_iterations = n_iterations
@@ -47,9 +45,7 @@ class Aligner:
         self.source_suffix_len = source_suffix_len
         self.target_prefix_len = target_prefix_len
         self.target_suffix_len = target_suffix_len
-
-        if priors_file:
-            self.priors = read_priors(priors_file)
+        self.priors = read_priors(priors_file) if priors_file else None
 
     def prepare_files(self, input:List[SentencePair], src_output_file, trg_output_file, priors_output_file):
         """Convert text files to formats used by eflomal
@@ -69,11 +65,12 @@ class Aligner:
             to_eflomal_priors_file(
                 self.priors, src_index, trg_index, priors_output_file)
 
-    def align(self, batch:List[SentencePair], *, quiet=True, use_gdb=False) -> List[List[Tuple[int,int]]]:
+    def align(self, batch:List[SentencePair], *, quiet=True, reverse=False, use_gdb=False) -> List[List[Tuple[int,int]]]:
         """Run alignment for the input"""
         pid = os.getpid()
 
-        executable = os.path.join(os.path.dirname(__file__), 'bin', 'eflomal')
+        # executable = os.path.join(os.path.dirname(__file__), 'bin', 'eflomal')
+        executable = os.path.join(os.path.dirname(__file__), '..', '..', 'src', 'eflomal')
 
         n_sentences = len(batch)
 
@@ -89,9 +86,9 @@ class Aligner:
             else:
                 n_iterations = (max(2, iters4), iters4, iters)
 
-        with NamedTemporaryFile(delete=False, dir='.', prefix=f'{pid}_', suffix='.src', mode='wb') as srcf, \
-             NamedTemporaryFile(delete=False, dir='.', prefix=f'{pid}_', suffix='.trg', mode='wb') as trgf, \
-             NamedTemporaryFile(delete=False, dir='.', prefix=f'{pid}_', suffix='.priors', mode='w', encoding='utf-8') as priorsf:
+        with NamedTemporaryFile(delete=True, dir='.', prefix=f'{pid}_', suffix='.src', mode='wb') as srcf, \
+             NamedTemporaryFile(delete=True, dir='.', prefix=f'{pid}_', suffix='.trg', mode='wb') as trgf, \
+             NamedTemporaryFile(delete=True, dir='.', prefix=f'{pid}_', suffix='.priors', mode='w', encoding='utf-8') as priorsf:
             
             # Write input files for the eflomal binary
             self.prepare_files(batch, srcf, trgf, priorsf)
@@ -105,7 +102,7 @@ class Aligner:
                 '-n', str(self.n_samplers),
                 '-N', str(self.null_prior),
                 '-1', str(n_iterations[0]),
-                '-f', '-', # forward links to stdout
+                ('-r' if reverse else '-f'), '-', # forward or reverse links to stdout
             ]
             
             if quiet: args.append('-q')
@@ -114,14 +111,13 @@ class Aligner:
             if self.priors: args.extend(['-p', priorsf.name])
             if use_gdb: args = ['gdb', '-ex=run', '--args'] + args
         
+            print(args, file=sys.stderr)
             output = subprocess.check_output(args)
 
         return [
-            [parse_link(link) for link in line.split(b' ')]
-            for line in output.split(b'\n')
-            if line != b''
+            [parse_link(link) for link in line.split(b' ')] if line != b'' else []
+            for line in output[:-1].split(b'\n')
         ]
-
 
 
 class TextIndex:
@@ -206,10 +202,7 @@ def sentences_from_joint_file(joint_file, index=None):
     for i, line in enumerate(joint_file):
         fields = line.strip().split(' ||| ')
         if len(fields) != 2:
-            logger.error('line %d does not contain a single |||'
-                         ' separator, or sentence(s) are empty!',
-                         i + 1)
-            raise ValueError('Invalid joint input line %s' % line)
+            raise ValueError(f'line {i+1} does not contain a single ||| separator, or sentence(s) are empty!')
         if index is None:
             yield fields[0], fields[1]
         else:
@@ -232,9 +225,7 @@ def calculate_priors(src_sentences, trg_sentences,
         rev_links = [tuple(map(int, s.split('-'))) for s in rev_line.split()]
         for i, j in fwd_links:
             if i >= len(src_sent) or j >= len(trg_sent):
-                logger.error('alignment out of bounds in line %d: '
-                             '(%d, %d)', lineno + 1, i, j)
-                raise ValueError('Invalid input on line %d' % lineno + 1)
+                raise ValueError(f'alignment out of bounds in line {lineno + 1}: ({i}, {j})')
             priors[(src_sent[i], trg_sent[j])] += 1
 
         last_j = -1
@@ -299,9 +290,7 @@ def read_priors(priors_file):
         try:
             alpha = float(fields[-1])
         except ValueError as err:
-            logger.error('priors line %d contains alpha '
-                         'value of "%s" which is not numeric',
-                         i+1, fields[2])
+            logger.error(f'priors line {i+1} contains alpha value of "{fields[2]}" which is not numeric')
             raise err
         if fields[0] == 'LEX' and len(fields) == 4:
             priors_list.append((fields[1], fields[2], alpha))
@@ -315,7 +304,7 @@ def read_priors(priors_file):
             ferr_priors.append((fields[1], int(fields[2]), alpha))
         else:
             logger.error('priors line %d is invalid', i + 1)
-            raise ValueError('Invalid input on line %d' % i + 1)
+            raise ValueError(f'Invalid input on line {i+1}')
     return Priors(priors_list, hmmf_priors, hmmr_priors, ferf_priors, ferr_priors)
 
 

@@ -117,15 +117,6 @@ def main():
     if any(x is None for x in iters[:args.model]):
         iters = None
 
-    aligner = Aligner(
-        model=args.model, score_model=args.score_model,
-        n_iterations=iters, n_samplers=args.n_samplers,
-        rel_iterations=args.length, null_prior=args.null_prior,
-        source_prefix_len=args.source_prefix_len,
-        source_suffix_len=args.source_suffix_len,
-        target_prefix_len=args.target_prefix_len,
-        target_suffix_len=args.target_suffix_len)
-
     # Stack for automatic closing of file objects
     with contextlib.ExitStack() as stack:
         if args.priors_filename:
@@ -133,28 +124,39 @@ def main():
                 open(args.priors_filename, 'r', encoding='utf-8'))
         else:
             priors_input = None
-        if args.joint_filename:
-            logger.info('Reading source/target sentences from %s...',
-                        args.joint_filename)
-            src_in_f = stack.enter_context(
-                open(args.joint_filename, 'r', encoding='utf-8'))
-            src_input = sentences_from_joint_file(src_in_f, 0)
-            trg_in_f = stack.enter_context(
-                open(args.joint_filename, 'r', encoding='utf-8'))
-            trg_input = sentences_from_joint_file(trg_in_f, 1)
-        else:
-            src_input = stack.enter_context(
-                open(args.source_filename, 'r', encoding='utf-8'))
-            trg_input = stack.enter_context(
-                open(args.target_filename, 'r', encoding='utf-8'))
 
-        aligner.align(src_input, trg_input,
-                      links_filename_fwd=args.links_filename_fwd,
-                      links_filename_rev=args.links_filename_rev,
-                      scores_filename_fwd=args.scores_filename_fwd,
-                      scores_filename_rev=args.scores_filename_rev,
-                      priors_input=priors_input,
-                      quiet=not args.verbose, use_gdb=args.debug)
+        aligner = Aligner(
+            model=args.model, score_model=args.score_model,
+            n_iterations=iters, n_samplers=args.n_samplers,
+            rel_iterations=args.length, null_prior=args.null_prior,
+            source_prefix_len=args.source_prefix_len,
+            source_suffix_len=args.source_suffix_len,
+            target_prefix_len=args.target_prefix_len,
+            target_suffix_len=args.target_suffix_len,
+            priors_file=priors_input)
+
+        if args.joint_filename:
+            in_f = stack.enter_context(open(args.joint_filename, 'r', encoding='utf-8'))
+            sentences = list(
+                (
+                    line.rstrip().split(' ||| ')[0].split(),
+                    line.rstrip().split(' ||| ')[1].split()
+                )
+                for line in in_f
+            )
+        else:
+            src_in_f = stack.enter_context(open(args.source_filename, 'r', encoding='utf-8'))
+            trg_in_f = stack.enter_context(open(args.target_filename, 'r', encoding='utf-8'))
+            sentences = list(zip(
+                (line.rstrip().split() for line in src_in_f),
+                (line.rstrip().split() for line in trg_in_f),
+            ))
+
+        for outfile, reverse in [(args.links_filename_fwd, False), (args.links_filename_rev, True)]:
+            if outfile is not None:
+                with open(outfile, 'w') as fout:
+                    for links in aligner.align(sentences, quiet=not args.verbose, reverse=reverse, use_gdb=args.debug):
+                        print(' '.join(f'{i}-{j}' for i, j in links), file=fout)
 
 
 if __name__ == '__main__':

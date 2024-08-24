@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euxo pipefail
 
 # Usage:
 #  align_symmetrize source.txt target.txt output.moses method [eflomal options]
@@ -11,20 +12,24 @@ if [ -z $4 ] ; then
     exit 1
 fi
 
+PROG="eframal"
+OPTIONS="--verbose --overwrite"
+
+PROG="src/eflomal"
+OPTIONS=""
+
 SYMMETRIZATION=$4
-OPTIONS="--verbose"
 
 DIR=`dirname $0`/..
 if [ "$SYMMETRIZATION" == "none" ]; then
-    python3 $DIR/align.py $OPTIONS --overwrite -s "$1" -t "$2" -f "$3" "${@:5}"
+    $PROG $OPTIONS -s "$1" -t "$2" -f "$3" "${@:5}"
 elif [ "$SYMMETRIZATION" == "reverse" ]; then
-    python3 $DIR/align.py $OPTIONS --overwrite -s "$1" -t "$2" -r "$3" "${@:5}"
+    $PROG $OPTIONS -s "$1" -t "$2" -r "$3" "${@:5}"
 else
     FWD=`mktemp`
     BWD=`mktemp`
-    python3 $DIR/align.py $OPTIONS --overwrite -s "$1" -t "$2" \
+    $PROG $OPTIONS -s "$1" -t "$2" \
         -f "$FWD" -r "$BWD" "${@:5}"
     atools -c $SYMMETRIZATION -i "$FWD" -j "$BWD" >"$3"
     rm -f "$FWD" "$BWD"
 fi
-

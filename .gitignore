@@ -33,3 +33,4 @@ python/eflomal/bin
 # Debug files
 *.dSYM/
 *.su
+src/eflomal++
